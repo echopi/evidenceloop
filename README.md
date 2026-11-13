@@ -96,7 +96,7 @@ exit code 1.
 ## Investigation loop
 
 ```
-crashlab next
+eloop next
    |  action = run_next_experiment
    v
 run the pre-registered spec -> new evidence
@@ -187,10 +187,10 @@ eloop --home ~/.eloop/crash-b ingest --kind crash_log --path ./b.log
 
 Multiple goals in one home are out of scope for 0.1.0.
 
-### Migrating from crashlab
+### Migrating an existing home
 
 ```bash
-eloop migrate --from ~/.crashlab
+eloop migrate --from <old-home>
 ```
 
 This copies `ledger.jsonl`, `investigation.json`, and `logs/` into the target
