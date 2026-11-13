@@ -17,6 +17,33 @@ PyPI is the primary distribution channel. The command is installed with
 
 No API token is stored in the repository; the workflow uses OIDC.
 
+## TestPyPI rehearsal
+
+Run a rehearsal on TestPyPI before publishing to the real index so packaging,
+metadata, and the install path are proven without burning a version number on
+PyPI.
+
+1. Create an account on [test.pypi.org](https://test.pypi.org) and add a
+   pending trusted publisher for the `evidenceloop` project:
+   - GitHub repo: `echopi/evidenceloop`
+   - workflow: `testpypi.yml`
+   - environment: `testpypi`
+2. Create the `testpypi` environment in GitHub repository settings. Do not add
+   any secret; the workflow authenticates with OIDC.
+3. Run the `testpypi` workflow manually from the Actions tab
+   (`workflow_dispatch`). It builds the distributions and publishes them to
+   `https://test.pypi.org/legacy/`. It does not tag or publish to PyPI.
+4. Verify the install in a clean environment:
+
+   ```bash
+   pipx install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple evidenceloop==0.1.0
+   ```
+
+TestPyPI treats uploaded versions as immutable as well. If you need another
+rehearsal, bump to a pre-release version (for example `0.1.0rc2`) and update the
+install command. The real release still goes through `release.yml` and the PyPI
+trusted publisher.
+
 ## Release steps
 
 1. Bump the version in `pyproject.toml` and
