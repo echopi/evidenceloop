@@ -1,0 +1,21 @@
+[DEBUG] synthetic dump for parser tests
+Basic Information: 'pid: 100/tid: 200/time: 20260101000000'
+Application Information: 'version: 1.0.0/subversion: release/buildseq: 42'
+wk_buildVersion: 1.0.0
+wk_buildRevision: abc123
+model: TestDevice
+sdk: 36
+pid: 100, tid: 200  >>> com.example.app <<<
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0000000000000000
+  x0   0000000000000000  x1   0000000000000001
+  sp   0000000000000000  pc   0000000000001000
+    #00 pc 0000000000001000  /data/app/libexample.so
+    #01 pc 0000000000002000  /system/lib64/libc.so (abort+160)
+    >>> [translate by crash parser] <<<
+    #00 pc 0000000000001000 std::__1::less<int>::operator() LINE: operations.h:358
+ (inlined by) std::__1::__tree<example::Entry>::find<int>(int const&) LINE: __tree:2088
+ (inlined by) example::Exporter::Export() LINE: exporter.cc:42
+ (inlined by) example::Service::Run() LINE: service.cc:10
+> subprocess occurred exception, pid: 300, tid: 301, signal: 6
+> signal 6 (SIGABRT), code -1 (SI_QUEUE), fault addr --------
+>   #00 pc 0000000000070bcc  /apex/com.android.runtime/lib64/bionic/libc.so (abort+160)

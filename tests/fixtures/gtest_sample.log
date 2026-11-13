@@ -1,0 +1,12 @@
+[==========] 3 tests from 1 test suite ran. (2 ms total)
+[  PASSED  ] 2 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] Suite.Case (1 ms)
+  Failure
+  Expected equality of these values:
+    bodies.size()
+      Which is: 8
+    resources.size()
+      Which is: 0
+
+ 1 FAILED TEST

@@ -1,0 +1,13 @@
+{
+  "name": "example-tests",
+  "repo": ".",
+  "note": "synthetic passing run used by the README quick start",
+  "test": {
+    "argv": [
+      "python3",
+      "-c",
+      "print('[==========] 1 test from 1 test suite ran.'); print('[  PASSED  ] 1 test.')"
+    ],
+    "timeout_sec": 30
+  }
+}

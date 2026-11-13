@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "evidenceloop"
+version = "0.1.0"
+description = "Evidence-driven investigation ledger for crash analysis"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [{ name = "EvidenceLoop contributors" }]
+maintainers = [{ name = "EvidenceLoop contributors" }]
+keywords = ["crash", "debugging", "investigation", "evidence", "ledger", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Debuggers",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+release = ["build>=1", "twine>=5"]
+
+[project.urls]
+Homepage = "https://github.com/<owner>/evidenceloop"
+Repository = "https://github.com/<owner>/evidenceloop"
+Issues = "https://github.com/<owner>/evidenceloop/issues"
+Changelog = "https://github.com/<owner>/evidenceloop/blob/main/CHANGELOG.md"
+
+[project.scripts]
+eloop = "evidenceloop.cli:main"
+evidenceloop = "evidenceloop.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/evidenceloop"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/evidenceloop",
+    "tests",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
