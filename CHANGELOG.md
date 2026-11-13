@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 The format follows Keep a Changelog and the project uses semantic versioning.
 
+## [0.1.1] - 2026-11-13
+
+### Changed
+
+- Remove legacy `crashlab` naming from the public README and changelog.
+  Documentation only; no runtime changes.
+
 ## [0.1.0] - 2026-11-13
 
 ### Added

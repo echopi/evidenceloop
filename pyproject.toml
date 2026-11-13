@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "evidenceloop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Evidence-driven investigation ledger for crash analysis"
 readme = "README.md"
 license = { text = "MIT" }
