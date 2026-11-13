@@ -8,9 +8,9 @@ PyPI is the primary distribution channel. The command is installed with
 1. The `[project.urls]` table in `pyproject.toml` points at
    `https://github.com/echopi/evidenceloop`. If the repository moves, update
    all four URLs (Homepage, Repository, Issues, Changelog).
-2. The GitHub repository exists as private. After the open-source approval,
-   switch it to public and push `main` and the release tags.
-3. Create the `pypi` environment in GitHub repository settings.
+2. The GitHub repository is public. Push `main` and the release tags.
+3. The `pypi` environment exists in GitHub repository settings; recreate it
+   only if it is missing. No secret is needed.
 4. Configure a PyPI trusted publisher for `echopi/evidenceloop`:
    - workflow: `release.yml`
    - environment: `pypi`
