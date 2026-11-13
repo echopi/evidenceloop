@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from ..util import bounded, env_int
 
@@ -39,7 +39,7 @@ META_RE = re.compile(r"^([A-Za-z0-9_]*(?:[Vv]ersion|[Rr]evision)[A-Za-z0-9_]*):\
 INLINED_PREFIX = "(inlined by) "
 
 
-def _new_event(signal: int, name: str, code: int, code_name: str, fault: Any) -> Dict[str, Any]:
+def _new_event(signal: int, name: str, code: int, code_name: str, fault: Any) -> dict[str, Any]:
     return {
         "signal": signal,
         "name": name,
@@ -74,8 +74,8 @@ def _symbol_from_translated(line: str) -> str:
     return match.group(1) if match else ""
 
 
-def parse_tombstone(path: Path) -> Dict[str, Any]:
-    summary: Dict[str, Any] = {
+def parse_tombstone(path: Path) -> dict[str, Any]:
+    summary: dict[str, Any] = {
         "format": "android_tombstone",
         "basic": {},
         "app": {},
@@ -84,10 +84,10 @@ def parse_tombstone(path: Path) -> Dict[str, Any]:
     }
     current: Any = None
     in_translated = False
-    last_pid_header: Dict[str, Any] = {}
+    last_pid_header: dict[str, Any] = {}
     pending_header: Any = None
 
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    with open(path, encoding="utf-8", errors="replace") as handle:
         for raw_line in handle:
             line = raw_line.rstrip("\n")
 
@@ -174,7 +174,10 @@ def parse_tombstone(path: Path) -> Dict[str, Any]:
                 symbol = _symbol_from_translated(stripped)
                 if symbol and current["app_frame"] is None and _is_app_symbol(symbol):
                     current["app_frame"] = bounded(stripped, 300)
-                if stripped.startswith(INLINED_PREFIX) and len(current["translated"]) < MAX_TRANSLATED:
+                if (
+                    stripped.startswith(INLINED_PREFIX)
+                    and len(current["translated"]) < MAX_TRANSLATED
+                ):
                     current["translated"].append(bounded(stripped, 300))
                     continue
 

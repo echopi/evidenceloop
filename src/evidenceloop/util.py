@@ -6,7 +6,6 @@ import datetime as dt
 import hashlib
 import os
 from pathlib import Path
-from typing import List
 
 
 def now_iso() -> str:
@@ -29,7 +28,7 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def split_ids(value: str) -> List[str]:
+def split_ids(value: str) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 

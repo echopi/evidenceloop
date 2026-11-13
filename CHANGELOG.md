@@ -15,8 +15,19 @@ The format follows Keep a Changelog and the project uses semantic versioning.
   rules.
 - `next` for stop-check output.
 - `migrate` from the legacy `crashlab` home.
+- Cross-platform write locking (`ledger.lock`) for evidence appends and
+  investigation state; evidence IDs are allocated inside the same lock.
+- `meta.json` schema marker with legacy-home migration on first write and an
+  explicit error for newer, unsupported schema versions.
+- Security policy, code of conduct, issue templates, and pull request template.
+- README sections for locking, schema compatibility, and the single-goal scope
+  of a home.
 
 ### Fixed
 
 - `next` no longer reports a global root cause while unproven hypotheses
   remain; it returns `root_cause_not_closed` instead.
+- Concurrent writers could allocate duplicate evidence IDs or lose hypothesis
+  updates; writes now serialize on the home lock.
+- A truncated trailing ledger record is ignored instead of being parsed, and
+  the next append starts on a fresh line.

@@ -5,10 +5,13 @@ PyPI is the primary distribution channel. The command is installed with
 
 ## One-time setup
 
-1. Replace `<owner>` in the `[project.urls]` table of `pyproject.toml` with the
-   real repository owner.
-2. Create the `pypi` environment in GitHub repository settings.
-3. Configure a PyPI trusted publisher for this repository:
+1. The `[project.urls]` table in `pyproject.toml` points at
+   `https://github.com/echopi/evidenceloop`. If the repository moves, update
+   all four URLs (Homepage, Repository, Issues, Changelog).
+2. The GitHub repository exists as private. After the open-source approval,
+   switch it to public and push `main` and the release tags.
+3. Create the `pypi` environment in GitHub repository settings.
+4. Configure a PyPI trusted publisher for `echopi/evidenceloop`:
    - workflow: `release.yml`
    - environment: `pypi`
 
@@ -24,17 +27,26 @@ No API token is stored in the repository; the workflow uses OIDC.
    ```bash
    pip install -e ".[dev,release]"
    ruff check .
-   pytest
+   pytest --cov=evidenceloop --cov-report=term-missing
    python -m build
    twine check dist/*
    ```
 
-4. Commit the changes, then tag and push:
+4. Install the built wheel in a clean environment and smoke-test it:
+
+   ```bash
+   python -m venv /tmp/eloop-smoke
+   /tmp/eloop-smoke/bin/pip install dist/evidenceloop-X.Y.Z-py3-none-any.whl
+   /tmp/eloop-smoke/bin/eloop --version
+   /tmp/eloop-smoke/bin/eloop --home /tmp/eloop-release-smoke status
+   ```
+
+5. Commit the changes, then tag and push:
 
    ```bash
    git tag vX.Y.Z
    git push origin vX.Y.Z
    ```
 
-5. The `release` workflow builds and publishes to PyPI. Verify the new version
+6. The `release` workflow builds and publishes to PyPI. Verify the new version
    with `pipx install evidenceloop==X.Y.Z`.

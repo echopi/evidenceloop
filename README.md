@@ -72,7 +72,9 @@ eloop status
 ```
 
 State lives in `~/.eloop` by default. Override with `--home` or
-`ELOOP_HOME`.
+`ELOOP_HOME`. A home holds one investigation; version 0.1.0 does not support
+multiple goals in one home (see
+[One investigation per home](#one-investigation-per-home)).
 
 ## Commands
 
@@ -124,12 +126,66 @@ Rules enforced by the tool:
 ~/.eloop/
   ledger.jsonl        # append-only evidence records
   investigation.json  # hypotheses, rounds, counters
+  meta.json           # schema version marker (created on first write)
+  ledger.lock         # advisory lock that serializes writes
   logs/               # experiment logs produced by `run`
 ```
 
 Evidence records keep the source path and SHA-256. Raw artifacts are not
 copied; deleting the source invalidates the reference but does not corrupt the
 ledger.
+
+### Concurrency and locking
+
+`eloop` can be invoked from several shells at once. Every write takes an
+exclusive lock on `<home>/ledger.lock` (POSIX `flock`, Windows
+`msvcrt.locking`). The lock covers evidence ID allocation and the append, so
+concurrent ingests cannot allocate the same ID. Writes to `investigation.json`
+use the same lock end to end (read, modify, write) and replace the file
+atomically.
+
+If the lock cannot be acquired within 5 seconds, the command fails with an
+`{"error": "timed out ... waiting for lock"}` payload and exit code 1; it never
+drops a write silently.
+
+Reads do not take the lock. They consume only newline-terminated records, so a
+record that is still being written is ignored rather than parsed as truncated
+JSON.
+
+### Schema and compatibility
+
+Each home carries a `meta.json` marker:
+
+```json
+{
+  "schema_version": 1,
+  "created_at": "2026-11-13T12:00:00+08:00",
+  "tool_version": "0.1.0"
+}
+```
+
+- Homes created before schema markers (only `ledger.jsonl` and
+  `investigation.json`) are read as schema version 1.
+- The marker is created on the first write to a legacy home. Reads never create
+  or modify it.
+- If `schema_version` is newer than this build supports, `eloop` exits with an
+  explicit error and leaves every file untouched. Upgrade `eloop` or point
+  `--home` elsewhere; the tool does not downgrade or rewrite newer state.
+- `tool_version` records which build created the marker. It is informational and
+  does not affect how records are read.
+
+### One investigation per home
+
+Version 0.1.0 intentionally supports one goal per home. A home stores a single
+`investigation.json`, and `eloop` never merges goals, hypotheses, or rounds
+across homes. To investigate two problems in parallel, give each its own home:
+
+```bash
+eloop --home ~/.eloop/crash-a ingest --kind crash_log --path ./a.log
+eloop --home ~/.eloop/crash-b ingest --kind crash_log --path ./b.log
+```
+
+Multiple goals in one home are out of scope for 0.1.0.
 
 ### Migrating from crashlab
 
@@ -147,6 +203,16 @@ home. Existing files are not overwritten unless `--force` is passed.
 - EvidenceLoop does not symbolize binaries or capture debugger stacks; pass
   those outputs in as `text` or `gtest_log` evidence.
 - It does not decide root cause. It enforces the evidence and closure rules.
+- Evidence records keep absolute source paths and digests. Do not ingest
+  credentials or real user data; see [SECURITY.md](SECURITY.md).
+
+## Community
+
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md) — report vulnerabilities privately, never in a
+  public issue.
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from ..util import bounded
 
@@ -14,8 +14,8 @@ FAILED_COUNT_RE = re.compile(r"^\[  FAILED  \] (\d+) tests?, listed below:")
 FAILED_TEST_RE = re.compile(r"^\[  FAILED  \] ([^\s(]+) \(")
 
 
-def parse_gtest(path: Path) -> Dict[str, Any]:
-    result: Dict[str, Any] = {
+def parse_gtest(path: Path) -> dict[str, Any]:
+    result: dict[str, Any] = {
         "tests_ran": None,
         "suites": None,
         "passed": None,

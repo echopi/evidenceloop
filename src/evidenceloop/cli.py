@@ -6,11 +6,11 @@ import argparse
 import datetime as dt
 import json
 import re
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
-from . import __version__
-from . import investigation
+from . import __version__, investigation
 from .errors import EvidenceLoopError
 from .ledger import Ledger, migrate_home
 from .parsers import parse_gtest, parse_tombstone
@@ -22,7 +22,7 @@ def _print(payload: Any) -> None:
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
-def _revision(summary: Dict[str, Any]) -> str:
+def _revision(summary: dict[str, Any]) -> str:
     metadata = (summary.get("app") or {}).get("metadata") or {}
     for key, value in metadata.items():
         if "revision" in key.lower():
@@ -30,37 +30,25 @@ def _revision(summary: Dict[str, Any]) -> str:
     return ""
 
 
-def _one_line(entry: Dict[str, Any]) -> str:
+def _one_line(entry: dict[str, Any]) -> str:
     summary = entry.get("summary") or {}
     if entry.get("kind") == "crash_log":
         signals = " + ".join(
-            "%s pid=%s tid=%s%s"
-            % (
-                event.get("name"),
-                event.get("pid"),
-                event.get("tid"),
-                " subprocess" if event.get("subprocess") else "",
-            )
+            f"{event.get('name')} pid={event.get('pid')} tid={event.get('tid')}"
+            f"{' subprocess' if event.get('subprocess') else ''}"
             for event in summary.get("signal_events", [])
         )
         revision = _revision(summary)
-        suffix = "; revision=%s" % revision if revision else ""
-        return "%s signal event(s): %s%s" % (
-            summary.get("signal_count", 0),
-            signals,
-            suffix,
-        )
+        suffix = f"; revision={revision}" if revision else ""
+        return f"{summary.get('signal_count', 0)} signal event(s): {signals}{suffix}"
     if entry.get("kind") == "experiment":
         gtest = summary.get("gtest") or {}
         build = summary.get("build") or {}
         test = summary.get("test") or {}
-        return "build=%s test=%s tests=%s passed=%s failed=%s names=%s" % (
-            build.get("exit_code"),
-            test.get("exit_code"),
-            gtest.get("tests_ran"),
-            gtest.get("passed"),
-            gtest.get("failed"),
-            gtest.get("failed_tests"),
+        return (
+            f"build={build.get('exit_code')} test={test.get('exit_code')} "
+            f"tests={gtest.get('tests_ran')} passed={gtest.get('passed')} "
+            f"failed={gtest.get('failed')} names={gtest.get('failed_tests')}"
         )
     return str(entry.get("kind", "unknown"))
 
@@ -68,7 +56,7 @@ def _one_line(entry: Dict[str, Any]) -> str:
 def cmd_ingest(args: argparse.Namespace, ledger: Ledger) -> int:
     path = Path(args.path).expanduser()
     if not path.is_file():
-        raise EvidenceLoopError("not a file: %s" % path)
+        raise EvidenceLoopError(f"not a file: {path}")
 
     if args.kind == "crash_log":
         summary = parse_tombstone(path)
@@ -110,7 +98,7 @@ def cmd_view(args: argparse.Namespace, ledger: Ledger) -> int:
         else:
             payload = (entry.get("summary") or {}).get(args.section)
             if payload is None:
-                raise EvidenceLoopError("no section: %s" % args.section)
+                raise EvidenceLoopError(f"no section: {args.section}")
         _print(
             {
                 "evidence_id": entry.get("evidence_id"),
@@ -122,7 +110,7 @@ def cmd_view(args: argparse.Namespace, ledger: Ledger) -> int:
             }
         )
         return 0
-    raise EvidenceLoopError("unknown evidence: %s" % args.evidence)
+    raise EvidenceLoopError(f"unknown evidence: {args.evidence}")
 
 
 def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
@@ -131,11 +119,11 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
     name = spec.get("name") or spec_path.stem
     repo = Path(spec.get("repo", ".")).expanduser().resolve()
     if not repo.is_dir():
-        raise EvidenceLoopError("repo not found: %s" % repo)
+        raise EvidenceLoopError(f"repo not found: {repo}")
 
     timestamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     slug = re.sub(r"[^A-Za-z0-9_.-]", "_", str(name))
-    run_dir = ledger.logs / ("%s-%s" % (timestamp, slug))
+    run_dir = ledger.logs / f"{timestamp}-{slug}"
     summary = execute_spec(spec, repo, run_dir, args.skip_build)
 
     entry = {
@@ -155,7 +143,7 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
 
 def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
     entries = ledger.entries()
-    by_kind: Dict[str, int] = {}
+    by_kind: dict[str, int] = {}
     for entry in entries:
         kind = entry.get("kind", "unknown")
         by_kind[kind] = by_kind.get(kind, 0) + 1
@@ -173,7 +161,7 @@ def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
         (entry for entry in reversed(entries) if entry.get("kind") == "experiment"), None
     )
 
-    def brief(part: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    def brief(part: dict[str, Any] | None) -> dict[str, Any] | None:
         if not part:
             return None
         return {key: value for key, value in part.items() if key != "tail"}
@@ -311,7 +299,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     ledger = Ledger(args.home)

@@ -6,37 +6,37 @@ import json
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .errors import EvidenceLoopError
 from .parsers import parse_gtest
 from .util import bounded
 
 
-def load_spec(path: Path) -> Dict[str, Any]:
+def load_spec(path: Path) -> dict[str, Any]:
     try:
         spec = json.loads(Path(path).read_text(encoding="utf-8"))
     except OSError as error:
-        raise EvidenceLoopError("cannot read spec: %s" % error)
+        raise EvidenceLoopError(f"cannot read spec: {error}") from error
     except json.JSONDecodeError as error:
-        raise EvidenceLoopError("cannot parse spec: %s" % error)
+        raise EvidenceLoopError(f"cannot parse spec: {error}") from error
     if not isinstance(spec, dict):
         raise EvidenceLoopError("spec must be a JSON object")
     return spec
 
 
-def _validate_argv(value: Any, field: str) -> List[str]:
+def _validate_argv(value: Any, field: str) -> list[str]:
     if not isinstance(value, list) or not value:
-        raise EvidenceLoopError("%s.argv must be a non-empty list" % field)
+        raise EvidenceLoopError(f"{field}.argv must be a non-empty list")
     if not all(isinstance(item, str) for item in value):
-        raise EvidenceLoopError("%s.argv must contain strings only" % field)
+        raise EvidenceLoopError(f"{field}.argv must contain strings only")
     return list(value)
 
 
-def run_command(argv: List[str], cwd: Path, timeout_sec: int, log_path: Path) -> Dict[str, Any]:
+def run_command(argv: list[str], cwd: Path, timeout_sec: int, log_path: Path) -> dict[str, Any]:
     started = time.time()
     timed_out = False
-    exit_code: Optional[int]
+    exit_code: int | None
     with open(log_path, "w", encoding="utf-8", errors="replace") as log:
         try:
             completed = subprocess.run(
@@ -52,7 +52,7 @@ def run_command(argv: List[str], cwd: Path, timeout_sec: int, log_path: Path) ->
             exit_code = None
             timed_out = True
         except OSError as error:
-            log.write("evidenceloop: failed to start command: %s\n" % error)
+            log.write(f"evidenceloop: failed to start command: {error}\n")
             exit_code = None
     return {
         "argv": argv,
@@ -63,7 +63,7 @@ def run_command(argv: List[str], cwd: Path, timeout_sec: int, log_path: Path) ->
     }
 
 
-def tail_lines(path: Path, count: int = 8, limit: int = 200) -> List[str]:
+def tail_lines(path: Path, count: int = 8, limit: int = 200) -> list[str]:
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -72,11 +72,11 @@ def tail_lines(path: Path, count: int = 8, limit: int = 200) -> List[str]:
 
 
 def execute_spec(
-    spec: Dict[str, Any],
+    spec: dict[str, Any],
     repo: Path,
     run_dir: Path,
     skip_build: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
     build_result = None
     if not skip_build and spec.get("build"):
