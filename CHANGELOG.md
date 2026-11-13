@@ -14,7 +14,7 @@ The format follows Keep a Changelog and the project uses semantic versioning.
 - Hypothesis tracking with expectations, evidence links, rounds, and closure
   rules.
 - `next` for stop-check output.
-- `migrate` from the legacy `crashlab` home.
+- `migrate` from a legacy home.
 - Cross-platform write locking (`ledger.lock`) for evidence appends and
   investigation state; evidence IDs are allocated inside the same lock.
 - `meta.json` schema marker with legacy-home migration on first write and an
