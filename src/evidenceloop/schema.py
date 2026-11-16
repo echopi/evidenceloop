@@ -12,6 +12,9 @@ from .errors import EvidenceLoopError
 from .util import now_iso
 
 SCHEMA_VERSION = 1
+RECORD_SCHEMA_VERSION = 2
+SUMMARY_SCHEMA_VERSION = 1
+INVESTIGATION_SCHEMA_VERSION = 2
 META_FILENAME = "meta.json"
 
 
@@ -52,6 +55,44 @@ def validate_home(home: Path) -> None:
     meta = read_meta(home)
     if meta is not None:
         _check_version(Path(home), meta)
+
+
+def validate_record(entry: dict[str, Any]) -> None:
+    """Reject evidence records from a newer record or summary schema."""
+    if not isinstance(entry, dict):
+        raise EvidenceLoopError("evidence record must be a JSON object")
+    record_version = entry.get("record_schema_version", 1)
+    if (
+        isinstance(record_version, bool)
+        or not isinstance(record_version, int)
+        or record_version < 1
+    ):
+        raise EvidenceLoopError(f"invalid record_schema_version: {record_version!r}")
+    if record_version > RECORD_SCHEMA_VERSION:
+        raise EvidenceLoopError(
+            f"evidence record uses record_schema_version {record_version}, but this "
+            f"evidenceloop supports up to {RECORD_SCHEMA_VERSION}"
+        )
+    summary_version = entry.get("summary_schema_version", 1)
+    if (
+        isinstance(summary_version, bool)
+        or not isinstance(summary_version, int)
+        or summary_version < 1
+    ):
+        raise EvidenceLoopError(f"invalid summary_schema_version: {summary_version!r}")
+    if summary_version > SUMMARY_SCHEMA_VERSION:
+        raise EvidenceLoopError(
+            f"evidence record uses summary_schema_version {summary_version}, but this "
+            f"evidenceloop supports up to {SUMMARY_SCHEMA_VERSION}"
+        )
+    for key in ("evidence_id", "kind", "summary"):
+        if key not in entry:
+            raise EvidenceLoopError(f"evidence record is missing {key}")
+    for key in ("evidence_id", "kind"):
+        if not isinstance(entry[key], str):
+            raise EvidenceLoopError(f"evidence record field {key} must be a string")
+    if not isinstance(entry["summary"], dict):
+        raise EvidenceLoopError("evidence record field summary must be an object")
 
 
 def ensure_meta(home: Path) -> dict[str, Any]:

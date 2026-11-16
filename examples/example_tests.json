@@ -1,5 +1,6 @@
 {
   "name": "example-tests",
+  "test_id": "example-tests",
   "repo": ".",
   "note": "synthetic passing run used by the README quick start",
   "test": {

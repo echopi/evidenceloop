@@ -8,6 +8,8 @@ from typing import Any
 
 from ..util import bounded
 
+MAX_FAILURE_LINES = 10
+
 RAN_RE = re.compile(r"^\[==========\] (\d+) tests? from (\d+) test suites? ran\.")
 PASSED_RE = re.compile(r"^\[  PASSED  \] (\d+) tests?\.")
 FAILED_COUNT_RE = re.compile(r"^\[  FAILED  \] (\d+) tests?, listed below:")
@@ -22,12 +24,19 @@ def parse_gtest(path: Path) -> dict[str, Any]:
         "failed": None,
         "failed_tests": [],
         "failure_lines": [],
+        "coverage": {
+            "lines_total": 0,
+            "failure_lines_total": 0,
+            "failure_lines_kept": 0,
+            "truncated": False,
+        },
     }
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return result
 
+    failure_lines_total = 0
     in_failure = False
     for line in lines:
         match = RAN_RE.match(line)
@@ -52,10 +61,18 @@ def parse_gtest(path: Path) -> dict[str, Any]:
             continue
         if "Failure" in line:
             in_failure = True
-            if len(result["failure_lines"]) < 10:
+            failure_lines_total += 1
+            if len(result["failure_lines"]) < MAX_FAILURE_LINES:
                 result["failure_lines"].append(bounded(line, 200))
             continue
         if in_failure and line.strip():
-            if len(result["failure_lines"]) < 10:
+            failure_lines_total += 1
+            if len(result["failure_lines"]) < MAX_FAILURE_LINES:
                 result["failure_lines"].append(bounded(line, 200))
+    result["coverage"] = {
+        "lines_total": len(lines),
+        "failure_lines_total": failure_lines_total,
+        "failure_lines_kept": len(result["failure_lines"]),
+        "truncated": failure_lines_total > len(result["failure_lines"]),
+    }
     return result

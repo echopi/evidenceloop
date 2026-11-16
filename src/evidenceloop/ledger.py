@@ -7,7 +7,7 @@ import datetime as dt
 import json
 import os
 import shutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +22,7 @@ DEFAULT_HOME_NAME = ".eloop"
 def default_home() -> Path:
     override = os.environ.get("ELOOP_HOME")
     if override:
-        return Path(override).expanduser()
+        return Path(override).expanduser().resolve()
     return Path.home() / DEFAULT_HOME_NAME
 
 
@@ -34,14 +34,12 @@ class Ledger:
         home: str | None = None,
         lock_timeout: float = LOCK_TIMEOUT_SECONDS,
     ) -> None:
-        self.home = Path(home).expanduser() if home else default_home()
-        self.home.mkdir(parents=True, exist_ok=True)
+        self.home = Path(home).expanduser().resolve() if home else default_home()
         self.path = self.home / "ledger.jsonl"
         self.investigation_path = self.home / "investigation.json"
         self.lock_path = self.home / "ledger.lock"
         self.lock_timeout = lock_timeout
         self.logs = self.home / "logs"
-        self.logs.mkdir(exist_ok=True)
 
     def validate_schema(self) -> None:
         """Reject homes written with a newer schema; legacy homes read as v1."""
@@ -76,9 +74,11 @@ class Ledger:
             if not line:
                 continue
             try:
-                items.append(json.loads(line))
+                item = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            schema.validate_record(item)
+            items.append(item)
         return items
 
     def _next_id(self) -> str:
@@ -100,15 +100,22 @@ class Ledger:
             self.validate_schema()
             return self._next_id()
 
-    def append(self, entry: dict[str, Any]) -> dict[str, Any]:
+    def append(
+        self,
+        entry: dict[str, Any],
+        content_key: Callable[[dict[str, Any]], str] | None = None,
+    ) -> dict[str, Any]:
         """Append an entry and return it with the ledger-assigned evidence ID.
 
         The caller's dict is updated in place so commands that print the entry
         always report the ID that was actually persisted, even when several
-        processes append at the same time.
+        processes append at the same time. ``content_key`` runs after ID
+        allocation so it can use the final evidence ID.
         """
         with self.write_transaction():
             entry["evidence_id"] = self._next_id()
+            if content_key is not None:
+                entry["content_key"] = content_key(entry)
             payload = json.dumps(entry, ensure_ascii=False) + "\n"
             self._append_line(payload)
         return entry
@@ -154,6 +161,7 @@ def migrate_home(source: Path, target: Ledger, force: bool = False) -> dict[str,
                 + ", ".join(skipped)
             )
 
+    target.home.mkdir(parents=True, exist_ok=True)
     copied: list[str] = []
     for name in ("ledger.jsonl", "investigation.json"):
         src = source / name

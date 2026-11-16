@@ -18,11 +18,13 @@ summaries and the investigation state, not over raw dumps.
 - **View** one evidence record or a section of it; output is always bounded.
 - **Run** an experiment spec (build and test commands) and record exit codes,
   logs, and parsed test results as evidence.
+- **Verify** referenced sources and experiment logs by re-hashing them.
 - **Track hypotheses** with an explicit expectation, status, evidence links,
-  and rounds.
-- **Enforce closure**: a hypothesis can only be `confirmed` with a reproducer
-  and a green run. After three rounds without new evidence, `next` asks for
-  `unproven` or a different evidence source.
+  sources, and rounds.
+- **Enforce closure**: a hypothesis can only be `confirmed` with a failed
+  experiment reproducer and a green run that uses the same stable `test_id`.
+  After three rounds without new evidence, `next` asks for `unproven` or a
+  different evidence source.
 
 EvidenceLoop is deterministic and has no LLM dependency. It never uploads
 artifacts and never copies raw logs into summaries.
@@ -66,7 +68,10 @@ eloop hyp add \
 # 4. Run the experiment and record the result
 eloop run --spec examples/example_tests.json
 
-# 5. Advance
+# 5. Re-hash the evidence sources and run logs
+eloop verify
+
+# 6. Advance
 eloop next
 eloop status
 ```
@@ -83,11 +88,12 @@ multiple goals in one home (see
 | `eloop ingest --kind crash_log\|gtest_log\|text --path <file>` | Parse and record evidence |
 | `eloop view --evidence <id> [--section <name>]` | Show a bounded evidence view |
 | `eloop run --spec <file> [--skip-build]` | Execute a build/test spec and record it |
-| `eloop status` | Ledger counts, latest evidence, investigation summary |
-| `eloop hyp add --claim ... --expect ... --evidence ...` | Add an open hypothesis |
+| `eloop verify [--evidence <id>]` | Re-hash referenced sources and experiment logs |
+| `eloop status [--verify]` | Ledger counts, latest evidence, investigation summary |
+| `eloop hyp add --claim ... --expect ... --evidence ... [--source <label>]` | Add an open hypothesis |
 | `eloop hyp list` | Show the investigation state |
-| `eloop hyp update <id> --status ...` | Record a round result |
-| `eloop next` | Return the next hypothesis and the stop-check |
+| `eloop hyp update <id> --status ... [--supports <ids>] [--contradicts <ids>] [--source <label>] [--if-revision <n>]` | Record a round result |
+| `eloop next [--verify]` | Return the next hypothesis and the stop-check |
 | `eloop migrate --from <dir>` | Copy a legacy ledger and logs |
 
 All commands print JSON. Errors are printed as `{"error": "..."}` and return
@@ -109,16 +115,96 @@ hyp update --status open|ruled_out|confirmed|unproven
 
 Rules enforced by the tool:
 
-1. A hypothesis requires at least one existing evidence ID and a pre-registered
-   expectation.
+1. A hypothesis requires at least one existing evidence ID, a claim or explicit
+   mechanism, and a pre-registered expectation.
 2. Evidence IDs must exist in the ledger.
-3. `confirmed` requires `--reproducer` and `--green`; the green evidence must be
-   an experiment with exit code 0.
-4. `unproven` requires `--missing` describing the evidence gap.
-5. Rounds without new evidence are counted; after three, `next` returns
+3. `confirmed` requires `--reproducer` and `--green`.
+   - The reproducer must be an experiment whose test actually ran and failed
+     (`exit_code != 0`). A timeout or start failure is not a valid reproduction.
+   - The green run must be an experiment whose test ran and passed
+     (`exit_code == 0`).
+   - Both experiments must declare the same stable `test_id` in the spec. If
+     they differ, pass `--equivalent-to <reproducer_test_id>` and
+     `--equivalence-reason <why they are equivalent>`.
+   - Confirmatory experiments must be appended to the ledger after the
+     hypothesis was created.
+4. `ruled_out` requires at least one `--contradicts` evidence.
+5. `unproven` requires `--missing` describing the evidence gap.
+6. Rounds without new evidence are counted; after three, `next` returns
    `mark_unproven_or_change_evidence_source`.
-6. `root_cause_confirmed` requires no open or unproven hypotheses. A confirmed
-   hypothesis is a scoped conclusion, not closure of the whole investigation.
+7. `root_cause_confirmed` requires no open, unproven, or legacy-unvalidated
+   hypotheses. A confirmed hypothesis is a scoped conclusion, not closure of the
+   whole investigation. A `confirmed` or `ruled_out` record written by an older
+   version without the new closure validation is reported as
+   `legacy_unvalidated` and must be revalidated before it can contribute to
+   `root_cause_confirmed`.
+
+### Experiment test identity
+
+`run` records `summary.test.test_id` from the spec. Set it explicitly:
+
+```json
+{
+  "name": "example-tests",
+  "test_id": "url-map-concurrency",
+  "test": {"argv": ["..."], "timeout_sec": 300}
+}
+```
+
+The fallback order is `test.id`, `test.test_id`, `spec.test_id`, then
+`spec.name`. Closure requires a non-empty `test_id` for both the reproducer and
+the green run.
+
+### Evidence integrity
+
+`eloop verify` is read-only and re-hashes each evidence record's `source` and,
+for experiments, the recorded build/test logs. Each part is `ok`, `missing`,
+`hash_mismatch`, or `unverifiable`. Records without a digest are
+`unverifiable`; old experiment records without log hashes are not silently
+treated as verified.
+
+`status --verify` and `next --verify` include the same verification block. They
+do not re-hash by default, so frequent status queries stay bounded. Relative
+paths in legacy records are resolved against the ledger home; missing paths and
+records without digests are never reported as `ok`. Experiments run with
+`--skip-build` record `build_skipped`; verify does not require a build log for
+them.
+
+### Content identity and sources
+
+Each new evidence record carries a `content_key`. Ordinary evidence uses
+`(kind, sha256)`. Experiments use the stable `test_id`, test/build argv and
+results, and log digests. Re-ingesting the same file creates a new evidence ID
+but does not reset the stalled-round counter.
+
+`hyp add --source` and `hyp update --source` record the evidence source for the
+round. A stalled investigation (three rounds without new content) only resets
+when the round brings new content identity or a different source label. `next`
+returns `last_source` (the latest round) and `sources` (the investigation-level
+deduplicated history).
+
+### Investigation revisions
+
+Every successful state write increments `revision`. `hyp add` and `hyp update`
+accept `--if-revision <n>`; a mismatch fails with `revision mismatch` and
+leaves state untouched. This prevents an agent from applying a decision based
+on an `next` or `status` payload that another agent has already replaced.
+
+Legacy hypotheses without a recorded ledger position cannot produce a valid
+closure. Re-attest one with `eloop hyp update <id> --status open
+--rebase-timing`; confirmatory experiments added after that point can then be
+used for closure.
+
+### Record metadata and coverage
+
+New evidence records include `producer_version`, `record_schema_version`,
+`summary_schema_version`, `parser` (name and config), and `content_key`.
+Parser summaries include a `coverage` object with totals, kept counts, and a
+`truncated` flag. Crash logs report line/frame/translation counts, gtest logs
+report failure-line counts, and text records report byte size. In crash-log
+events, `frame_count` includes translated frames while `coverage.frames_total`
+counts native frames only. Legacy records keep their original shape and report
+unknown metadata rather than fabricated defaults.
 
 ## State layout
 
@@ -173,6 +259,11 @@ Each home carries a `meta.json` marker:
   `--home` elsewhere; the tool does not downgrade or rewrite newer state.
 - `tool_version` records which build created the marker. It is informational and
   does not affect how records are read.
+- Evidence records carry `record_schema_version` and `summary_schema_version`.
+  Records written before these fields read as version 1. Future record or
+  summary versions are rejected on read.
+- `investigation.json` carries `schema_version` and `revision`. Legacy state
+  reads as schema version 1 and is upgraded on the first write.
 
 ### One investigation per home
 
@@ -205,6 +296,8 @@ home. Existing files are not overwritten unless `--force` is passed.
 - It does not decide root cause. It enforces the evidence and closure rules.
 - Evidence records keep absolute source paths and digests. Do not ingest
   credentials or real user data; see [SECURITY.md](SECURITY.md).
+- `verify` checks file digests, not whether an experiment actually proves the
+  hypothesis. Closure rules decide what can be called confirmed.
 
 ## Community
 

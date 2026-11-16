@@ -52,6 +52,7 @@ def _new_event(signal: int, name: str, code: int, code_name: str, fault: Any) ->
         "subprocess": False,
         "abort_message": None,
         "frame_count": 0,
+        "native_frame_count": 0,
         "frames": [],
         "translated": [],
         "app_frame": None,
@@ -86,10 +87,13 @@ def parse_tombstone(path: Path) -> dict[str, Any]:
     in_translated = False
     last_pid_header: dict[str, Any] = {}
     pending_header: Any = None
+    lines_total = 0
+    translated_total = 0
 
     with open(path, encoding="utf-8", errors="replace") as handle:
         for raw_line in handle:
             line = raw_line.rstrip("\n")
+            lines_total += 1
 
             match = BASIC_RE.search(line)
             if match:
@@ -171,6 +175,8 @@ def parse_tombstone(path: Path) -> dict[str, Any]:
             if in_translated and (
                 stripped.startswith(INLINED_PREFIX) or "LINE:" in stripped
             ):
+                if stripped.startswith(INLINED_PREFIX):
+                    translated_total += 1
                 symbol = _symbol_from_translated(stripped)
                 if symbol and current["app_frame"] is None and _is_app_symbol(symbol):
                     current["app_frame"] = bounded(stripped, 300)
@@ -187,10 +193,12 @@ def parse_tombstone(path: Path) -> dict[str, Any]:
 
             current["frame_count"] += 1
             if "LINE:" in line and in_translated:
+                translated_total += 1
                 if len(current["translated"]) < MAX_TRANSLATED:
                     current["translated"].append(bounded(line, 300))
                 continue
 
+            current["native_frame_count"] += 1
             if len(current["frames"]) >= MAX_FRAMES:
                 continue
             index = int(match.group(1))
@@ -213,4 +221,20 @@ def parse_tombstone(path: Path) -> dict[str, Any]:
 
     summary["signal_count"] = len(summary["signal_events"])
     summary["signal_names"] = [event["name"] for event in summary["signal_events"]]
+    frames_total = sum(
+        event["native_frame_count"] for event in summary["signal_events"]
+    )
+    frames_kept = sum(len(event["frames"]) for event in summary["signal_events"])
+    translated_kept = sum(
+        len(event["translated"]) for event in summary["signal_events"]
+    )
+    summary["coverage"] = {
+        "lines_total": lines_total,
+        "frames_total": frames_total,
+        "frames_kept": frames_kept,
+        "translated_total": translated_total,
+        "translated_kept": translated_kept,
+        "truncated": frames_total > frames_kept
+        or translated_total > translated_kept,
+    }
     return summary

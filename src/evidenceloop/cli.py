@@ -10,12 +10,15 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from . import __version__, investigation
+from . import __version__, content, investigation, schema
 from .errors import EvidenceLoopError
 from .ledger import Ledger, migrate_home
+from .parsers import gtest as gtest_parser
 from .parsers import parse_gtest, parse_tombstone
+from .parsers import tombstone as tombstone_parser
 from .runner import execute_spec, load_spec
 from .util import now_iso, sha256_file, split_ids
+from .verify import verify_ledger
 
 
 def _print(payload: Any) -> None:
@@ -58,12 +61,27 @@ def cmd_ingest(args: argparse.Namespace, ledger: Ledger) -> int:
     if not path.is_file():
         raise EvidenceLoopError(f"not a file: {path}")
 
+    parser_name = "text"
+    parser_config: dict[str, Any] = {}
     if args.kind == "crash_log":
         summary = parse_tombstone(path)
+        parser_name = "tombstone"
+        parser_config = {
+            "max_frames": tombstone_parser.MAX_FRAMES,
+            "max_translated": tombstone_parser.MAX_TRANSLATED,
+            "max_text": tombstone_parser.MAX_TEXT,
+        }
     elif args.kind == "gtest_log":
         summary = parse_gtest(path)
+        parser_name = "gtest"
+        parser_config = {"max_failure_lines": gtest_parser.MAX_FAILURE_LINES}
     else:
-        summary = {"format": "text", "size": path.stat().st_size}
+        size = path.stat().st_size
+        summary = {
+            "format": "text",
+            "size": size,
+            "coverage": {"size_bytes": size, "truncated": False},
+        }
 
     entry = {
         "evidence_id": ledger.next_id(),
@@ -72,10 +90,14 @@ def cmd_ingest(args: argparse.Namespace, ledger: Ledger) -> int:
         "sha256": sha256_file(path),
         "captured_at": now_iso(),
         "producer": "eloop ingest",
+        "producer_version": __version__,
+        "record_schema_version": schema.RECORD_SCHEMA_VERSION,
+        "summary_schema_version": schema.SUMMARY_SCHEMA_VERSION,
+        "parser": {"name": parser_name, "config": parser_config},
         "note": args.note or "",
         "summary": summary,
     }
-    ledger.append(entry)
+    ledger.append(entry, content_key=content.compute_content_key)
     _print(
         {
             "evidence_id": entry["evidence_id"],
@@ -133,10 +155,17 @@ def cmd_run(args: argparse.Namespace, ledger: Ledger) -> int:
         "sha256": sha256_file(spec_path),
         "captured_at": now_iso(),
         "producer": "eloop run",
+        "producer_version": __version__,
+        "record_schema_version": schema.RECORD_SCHEMA_VERSION,
+        "summary_schema_version": schema.SUMMARY_SCHEMA_VERSION,
+        "parser": {
+            "name": "gtest" if summary.get("gtest") is not None else "none",
+            "config": {"max_failure_lines": gtest_parser.MAX_FAILURE_LINES},
+        },
         "note": spec.get("note", ""),
         "summary": summary,
     }
-    ledger.append(entry)
+    ledger.append(entry, content_key=content.compute_content_key)
     _print({"evidence_id": entry["evidence_id"], "kind": "experiment", "summary": summary})
     return 0
 
@@ -167,27 +196,33 @@ def cmd_status(args: argparse.Namespace, ledger: Ledger) -> int:
         return {key: value for key, value in part.items() if key != "tail"}
 
     last_summary = (last_experiment or {}).get("summary") or {}
-    _print(
-        {
-            "home": str(ledger.home),
-            "ledger": str(ledger.path),
-            "evidence_count": len(entries),
-            "by_kind": by_kind,
-            "investigation": investigation.summary(ledger),
-            "latest": latest,
-            "last_experiment": (
-                {
-                    "evidence_id": last_experiment.get("evidence_id"),
-                    "captured_at": last_experiment.get("captured_at"),
-                    "build": brief(last_summary.get("build")),
-                    "test": brief(last_summary.get("test")),
-                    "gtest": last_summary.get("gtest"),
-                }
-                if last_experiment
-                else None
-            ),
-        }
-    )
+    payload = {
+        "home": str(ledger.home),
+        "ledger": str(ledger.path),
+        "evidence_count": len(entries),
+        "by_kind": by_kind,
+        "investigation": investigation.summary(ledger),
+        "latest": latest,
+        "last_experiment": (
+            {
+                "evidence_id": last_experiment.get("evidence_id"),
+                "captured_at": last_experiment.get("captured_at"),
+                "build": brief(last_summary.get("build")),
+                "test": brief(last_summary.get("test")),
+                "gtest": last_summary.get("gtest"),
+            }
+            if last_experiment
+            else None
+        ),
+    }
+    if args.verify:
+        payload["verification"] = verify_ledger(ledger)
+    _print(payload)
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace, ledger: Ledger) -> int:
+    _print(verify_ledger(ledger, args.evidence))
     return 0
 
 
@@ -200,6 +235,9 @@ def cmd_hyp_add(args: argparse.Namespace, ledger: Ledger) -> int:
         spec=args.spec or "",
         goal=args.goal or "",
         note=args.note or "",
+        mechanism=args.mechanism or "",
+        source=args.source or "",
+        if_revision=args.if_revision,
     )
     _print(result)
     return 0
@@ -220,13 +258,24 @@ def cmd_hyp_update(args: argparse.Namespace, ledger: Ledger) -> int:
         missing=args.missing or "",
         reproducer=args.reproducer or "",
         green=args.green or "",
+        supports=split_ids(args.supports),
+        contradicts=split_ids(args.contradicts),
+        equivalent_to=args.equivalent_to or "",
+        equivalence_reason=args.equivalence_reason or "",
+        mechanism=args.mechanism or "",
+        source=args.source or "",
+        rebase_timing=args.rebase_timing,
+        if_revision=args.if_revision,
     )
     _print(result)
     return 0
 
 
 def cmd_next(args: argparse.Namespace, ledger: Ledger) -> int:
-    _print(investigation.next_action(ledger))
+    result = investigation.next_action(ledger)
+    if args.verify:
+        result["verification"] = verify_ledger(ledger)
+    _print(result)
     return 0
 
 
@@ -262,18 +311,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="ledger and investigation summary")
     status.add_argument("--limit", type=int, default=5)
+    status.add_argument(
+        "--verify", action="store_true", help="re-hash evidence sources and logs"
+    )
     status.set_defaults(func=cmd_status)
+
+    verify = sub.add_parser("verify", help="re-hash evidence sources and logs")
+    verify.add_argument("--evidence", default=None)
+    verify.set_defaults(func=cmd_verify)
 
     hyp = sub.add_parser("hyp", help="hypothesis state machine")
     hyp_sub = hyp.add_subparsers(dest="hyp_command", required=True)
 
     hyp_add = hyp_sub.add_parser("add")
     hyp_add.add_argument("--claim", required=True)
+    hyp_add.add_argument("--mechanism", default="", help="declared mechanism; defaults to --claim")
     hyp_add.add_argument("--expect", required=True)
     hyp_add.add_argument("--evidence", required=True)
     hyp_add.add_argument("--spec", default="")
     hyp_add.add_argument("--goal", default="")
     hyp_add.add_argument("--note", default="")
+    hyp_add.add_argument(
+        "--source", default="", help="evidence source label for the first round"
+    )
+    hyp_add.add_argument(
+        "--if-revision", type=int, default=None, help="require this investigation revision"
+    )
     hyp_add.set_defaults(func=cmd_hyp_add)
 
     hyp_list = hyp_sub.add_parser("list")
@@ -283,13 +346,52 @@ def build_parser() -> argparse.ArgumentParser:
     hyp_update.add_argument("id")
     hyp_update.add_argument("--status", required=True, choices=list(investigation.STATUSES))
     hyp_update.add_argument("--evidence", default="")
+    hyp_update.add_argument(
+        "--supports",
+        default="",
+        help="comma-separated supporting evidence ids",
+    )
+    hyp_update.add_argument(
+        "--contradicts",
+        default="",
+        help="comma-separated contradicting evidence ids; required for ruled_out",
+    )
     hyp_update.add_argument("--note", default="")
     hyp_update.add_argument("--missing", default="")
     hyp_update.add_argument("--reproducer", default="")
     hyp_update.add_argument("--green", default="")
+    hyp_update.add_argument(
+        "--equivalent-to",
+        default="",
+        help="reproducer test_id when green uses a different but equivalent test_id",
+    )
+    hyp_update.add_argument(
+        "--equivalence-reason",
+        default="",
+        help="why the two test_id values are equivalent",
+    )
+    hyp_update.add_argument(
+        "--mechanism",
+        default="",
+        help="explicit mechanism statement for confirmation",
+    )
+    hyp_update.add_argument(
+        "--source", default="", help="evidence source label for this round"
+    )
+    hyp_update.add_argument(
+        "--rebase-timing",
+        action="store_true",
+        help="set the ledger timing floor to now for a legacy hypothesis",
+    )
+    hyp_update.add_argument(
+        "--if-revision", type=int, default=None, help="require this investigation revision"
+    )
     hyp_update.set_defaults(func=cmd_hyp_update)
 
     next_cmd = sub.add_parser("next", help="next hypothesis and stop-check")
+    next_cmd.add_argument(
+        "--verify", action="store_true", help="include evidence integrity results"
+    )
     next_cmd.set_defaults(func=cmd_next)
 
     migrate = sub.add_parser("migrate", help="copy a legacy home")

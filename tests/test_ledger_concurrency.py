@@ -27,6 +27,17 @@ def _write_entries(home, count):
         ledger.append(entry)
 
 
+def _write_keyed_entries(home, count):
+    ledger = Ledger(home)
+    for index in range(count):
+        entry = {
+            "kind": "experiment",
+            "source": f"writer-{os.getpid()}",
+            "summary": {"index": index},
+        }
+        ledger.append(entry, content_key=lambda item: item["evidence_id"])
+
+
 def _add_hypotheses(home, evidence_id, count):
     ledger = Ledger(home)
     for index in range(count):
@@ -72,6 +83,20 @@ def test_concurrent_writers_allocate_unique_ids(tmp_path):
 
     meta = json.loads((tmp_path / "meta.json").read_text(encoding="utf-8"))
     assert meta["schema_version"] == 1
+
+
+def test_concurrent_content_keys_use_final_ids(tmp_path):
+    home = str(tmp_path)
+    _run_workers(
+        _write_keyed_entries,
+        [(home, ENTRIES_PER_WRITER)] * WRITERS,
+    )
+
+    records = Ledger(home).entries()
+    keys = [record["content_key"] for record in records]
+    assert len(keys) == WRITERS * ENTRIES_PER_WRITER
+    assert len(set(keys)) == len(keys)
+    assert all(record["content_key"] == record["evidence_id"] for record in records)
 
 
 def test_concurrent_hypothesis_writes_do_not_lose_updates(tmp_path):

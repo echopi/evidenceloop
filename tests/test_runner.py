@@ -5,6 +5,7 @@ import pytest
 
 from evidenceloop import runner
 from evidenceloop.errors import EvidenceLoopError
+from evidenceloop.util import sha256_file
 
 GTEST_PASS = (
     "[==========] 2 tests from 1 test suite ran.\n"
@@ -51,7 +52,15 @@ def test_execute_spec_success(tmp_path):
     assert summary["build"]["exit_code"] == 0
     assert summary["build"]["timed_out"] is False
     assert summary["build"]["tail"] == ["built"]
+    assert summary["build_skipped"] is False
+    assert summary["build"]["log_sha256"] == sha256_file(
+        tmp_path / "run" / "build.log"
+    )
     assert summary["test"]["exit_code"] == 0
+    assert summary["test"]["test_id"] == "ok"
+    assert summary["test"]["log_sha256"] == sha256_file(
+        tmp_path / "run" / "test.log"
+    )
     assert summary["gtest"]["tests_ran"] == 2
     assert summary["gtest"]["passed"] == 2
     assert summary["gtest"]["failed"] is None
@@ -75,6 +84,7 @@ def test_execute_spec_build_failure_skips_test(tmp_path):
     summary = runner.execute_spec(spec, tmp_path, tmp_path / "run")
 
     assert summary["build"]["exit_code"] == 3
+    assert summary["build_skipped"] is False
     assert summary["test"] is None
     assert summary["gtest"] is None
     assert not marker.exists()
@@ -93,6 +103,7 @@ def test_execute_spec_timeout(tmp_path):
 
     assert summary["test"]["timed_out"] is True
     assert summary["test"]["exit_code"] is None
+    assert summary["test"]["test_id"] == ""
     assert summary["gtest"]["tests_ran"] is None
 
 
@@ -112,12 +123,27 @@ def test_execute_spec_parses_failing_gtest(tmp_path):
     summary = runner.execute_spec(spec, tmp_path, tmp_path / "run")
 
     assert summary["test"]["exit_code"] == 1
+    assert summary["test"]["test_id"] == "fail"
     assert summary["gtest"]["tests_ran"] == 2
     assert summary["gtest"]["passed"] == 1
     assert summary["gtest"]["failed"] == 1
     assert summary["gtest"]["failed_tests"] == ["Suite.Case"]
     assert summary["gtest"]["failure_lines"]
     assert any("Failure" in line for line in summary["gtest"]["failure_lines"])
+
+
+def test_execute_spec_records_explicit_test_id(tmp_path):
+    script = write_script(tmp_path, "pass_gtest.py", "print('ok')\n")
+    spec = {
+        "name": "display-name",
+        "test_id": "stable-case",
+        "repo": str(tmp_path),
+        "test": {"argv": [sys.executable, str(script)], "timeout_sec": 30},
+    }
+
+    summary = runner.execute_spec(spec, tmp_path, tmp_path / "run")
+
+    assert summary["test"]["test_id"] == "stable-case"
 
 
 def test_execute_spec_skip_build(tmp_path):
@@ -135,6 +161,7 @@ def test_execute_spec_skip_build(tmp_path):
     summary = runner.execute_spec(spec, tmp_path, tmp_path / "run", skip_build=True)
 
     assert summary["build"] is None
+    assert summary["build_skipped"] is True
     assert summary["test"]["exit_code"] == 0
     assert summary["gtest"]["tests_ran"] == 2
 
@@ -144,6 +171,7 @@ def test_execute_spec_without_build_or_test(tmp_path):
 
     assert summary["name"] == ""
     assert summary["build"] is None
+    assert summary["build_skipped"] is False
     assert summary["test"] is None
 
 
@@ -160,6 +188,26 @@ def test_execute_spec_rejects_invalid_argv(tmp_path):
         with pytest.raises(EvidenceLoopError) as error:
             runner.execute_spec(spec, tmp_path, tmp_path / "run")
         assert message in str(error.value)
+
+
+def test_execute_spec_rejects_false_or_empty_build(tmp_path):
+    for skip_build in (False, True):
+        with pytest.raises(EvidenceLoopError, match="spec.build must be an object"):
+            runner.execute_spec(
+                {"repo": str(tmp_path), "build": False},
+                tmp_path,
+                tmp_path / "run",
+                skip_build=skip_build,
+            )
+        with pytest.raises(
+            EvidenceLoopError, match="build.argv must be a non-empty list"
+        ):
+            runner.execute_spec(
+                {"repo": str(tmp_path), "build": {}},
+                tmp_path,
+                tmp_path / "run",
+                skip_build=skip_build,
+            )
 
 
 def test_execute_spec_rejects_non_object_steps(tmp_path):

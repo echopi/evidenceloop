@@ -10,7 +10,7 @@ from typing import Any
 
 from .errors import EvidenceLoopError
 from .parsers import parse_gtest
-from .util import bounded
+from .util import bounded, sha256_file
 
 
 def load_spec(path: Path) -> dict[str, Any]:
@@ -31,6 +31,13 @@ def _validate_argv(value: Any, field: str) -> list[str]:
     if not all(isinstance(item, str) for item in value):
         raise EvidenceLoopError(f"{field}.argv must contain strings only")
     return list(value)
+
+
+def _test_id(spec: dict[str, Any], test: dict[str, Any]) -> str:
+    for value in (test.get("id"), test.get("test_id"), spec.get("test_id"), spec.get("name")):
+        if value:
+            return str(value)
+    return ""
 
 
 def run_command(argv: list[str], cwd: Path, timeout_sec: int, log_path: Path) -> dict[str, Any]:
@@ -54,12 +61,17 @@ def run_command(argv: list[str], cwd: Path, timeout_sec: int, log_path: Path) ->
         except OSError as error:
             log.write(f"evidenceloop: failed to start command: {error}\n")
             exit_code = None
+    try:
+        log_sha256 = sha256_file(log_path)
+    except OSError:
+        log_sha256 = ""
     return {
         "argv": argv,
         "exit_code": exit_code,
         "timed_out": timed_out,
         "duration_sec": round(time.time() - started, 3),
         "log": str(log_path),
+        "log_sha256": log_sha256,
     }
 
 
@@ -78,31 +90,41 @@ def execute_spec(
     skip_build: bool = False,
 ) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
-    build_result = None
-    if not skip_build and spec.get("build"):
-        build = spec["build"]
-        if not isinstance(build, dict):
+    build_spec = spec.get("build")
+    build_argv = None
+    if build_spec is not None:
+        if not isinstance(build_spec, dict):
             raise EvidenceLoopError("spec.build must be an object")
+        build_argv = _validate_argv(build_spec.get("argv"), "build")
+    test_spec = spec.get("test")
+    test_argv = None
+    if test_spec is not None:
+        if not isinstance(test_spec, dict):
+            raise EvidenceLoopError("spec.test must be an object")
+        test_argv = _validate_argv(test_spec.get("argv"), "test")
+
+    build_result = None
+    if not skip_build and build_spec is not None:
         build_result = run_command(
-            _validate_argv(build.get("argv"), "build"),
+            build_argv,
             repo,
-            int(build.get("timeout_sec", 900)),
+            int(build_spec.get("timeout_sec", 900)),
             run_dir / "build.log",
         )
         build_result["tail"] = tail_lines(run_dir / "build.log")
 
     test_result = None
     gtest = None
-    if (build_result is None or build_result["exit_code"] == 0) and spec.get("test"):
-        test = spec["test"]
-        if not isinstance(test, dict):
-            raise EvidenceLoopError("spec.test must be an object")
+    if (
+        build_result is None or build_result["exit_code"] == 0
+    ) and test_spec is not None:
         test_result = run_command(
-            _validate_argv(test.get("argv"), "test"),
+            test_argv,
             repo,
-            int(test.get("timeout_sec", 300)),
+            int(test_spec.get("timeout_sec", 300)),
             run_dir / "test.log",
         )
+        test_result["test_id"] = _test_id(spec, test_spec)
         gtest = parse_gtest(run_dir / "test.log")
         test_result["tail"] = tail_lines(run_dir / "test.log")
 
@@ -110,6 +132,7 @@ def execute_spec(
         "name": spec.get("name", ""),
         "repo": str(repo),
         "build": build_result,
+        "build_skipped": bool(build_spec is not None and skip_build),
         "test": test_result,
         "gtest": gtest,
     }

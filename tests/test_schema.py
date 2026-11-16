@@ -115,3 +115,111 @@ def test_cli_reports_future_schema_as_json_error(tmp_path, capsys):
 
     assert code == 1
     assert "schema_version" in payload["error"]
+
+
+def test_future_record_schema_is_rejected(tmp_path):
+    record = dict(LEGACY_LEDGER)
+    record["record_schema_version"] = schema.RECORD_SCHEMA_VERSION + 1
+    (tmp_path / "ledger.jsonl").write_text(
+        json.dumps(record) + "\n", encoding="utf-8"
+    )
+    ledger = Ledger(str(tmp_path))
+
+    with pytest.raises(EvidenceLoopError, match="record_schema_version"):
+        ledger.entries()
+
+
+def test_record_missing_fields_is_rejected(tmp_path):
+    record = {"evidence_id": "E1", "kind": "text"}
+    (tmp_path / "ledger.jsonl").write_text(
+        json.dumps(record) + "\n", encoding="utf-8"
+    )
+    ledger = Ledger(str(tmp_path))
+
+    with pytest.raises(EvidenceLoopError, match="missing summary"):
+        ledger.entries()
+
+
+def test_future_investigation_schema_is_rejected(tmp_path):
+    home = _legacy_home(tmp_path)
+    state = dict(LEGACY_STATE)
+    state["schema_version"] = schema.INVESTIGATION_SCHEMA_VERSION + 1
+    (home / "investigation.json").write_text(
+        json.dumps(state), encoding="utf-8"
+    )
+    ledger = Ledger(str(home))
+
+    with pytest.raises(EvidenceLoopError, match="investigation uses schema_version"):
+        investigation.load(ledger)
+
+
+def test_corrupt_investigation_is_not_silently_reset(tmp_path):
+    home = _legacy_home(tmp_path)
+    (home / "investigation.json").write_text("{bad", encoding="utf-8")
+    ledger = Ledger(str(home))
+
+    with pytest.raises(EvidenceLoopError, match="cannot parse"):
+        investigation.load(ledger)
+
+
+def test_record_summary_must_be_object(tmp_path):
+    record = dict(LEGACY_LEDGER)
+    record["summary"] = []
+    (tmp_path / "ledger.jsonl").write_text(
+        json.dumps(record) + "\n", encoding="utf-8"
+    )
+    ledger = Ledger(str(tmp_path))
+
+    with pytest.raises(EvidenceLoopError, match="summary must be an object"):
+        ledger.entries()
+
+
+def test_non_object_ledger_record_is_rejected(tmp_path):
+    (tmp_path / "ledger.jsonl").write_text("[1, 2]\n", encoding="utf-8")
+    ledger = Ledger(str(tmp_path))
+
+    with pytest.raises(EvidenceLoopError, match="must be a JSON object"):
+        ledger.entries()
+
+
+def test_investigation_must_be_object(tmp_path):
+    home = _legacy_home(tmp_path)
+    ledger = Ledger(str(home))
+
+    for payload in ("null", "[]", '"text"'):
+        (home / "investigation.json").write_text(payload, encoding="utf-8")
+        with pytest.raises(EvidenceLoopError, match="must contain a JSON object"):
+            investigation.load(ledger)
+
+
+def test_investigation_core_field_types_are_checked(tmp_path):
+    home = _legacy_home(tmp_path)
+    ledger = Ledger(str(home))
+    cases = [
+        ({"hypotheses": {}}, "hypotheses must be a list"),
+        ({"sources": "device"}, "sources must be a list"),
+        ({"last_source": 1}, "last_source must be a string"),
+        ({"round": "1"}, "round"),
+        ({"hypotheses": [{"id": 1, "status": "open"}]}, "string id and status"),
+    ]
+
+    for patch, message in cases:
+        state = dict(LEGACY_STATE)
+        state.update(patch)
+        (home / "investigation.json").write_text(
+            json.dumps(state), encoding="utf-8"
+        )
+        with pytest.raises(EvidenceLoopError, match=message):
+            investigation.load(ledger)
+
+
+def test_current_record_schema_versions_are_accepted(tmp_path):
+    record = dict(LEGACY_LEDGER)
+    record["record_schema_version"] = schema.RECORD_SCHEMA_VERSION
+    record["summary_schema_version"] = schema.SUMMARY_SCHEMA_VERSION
+    (tmp_path / "ledger.jsonl").write_text(
+        json.dumps(record) + "\n", encoding="utf-8"
+    )
+    ledger = Ledger(str(tmp_path))
+
+    assert ledger.entries()[0]["evidence_id"] == "E20260101-0001"

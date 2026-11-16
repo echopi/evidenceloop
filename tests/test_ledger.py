@@ -13,6 +13,16 @@ def test_ids_increment_and_entries_persist(tmp_path):
     assert entries[0]["kind"] == "text"
 
 
+def test_append_computes_content_key_with_final_evidence_id(tmp_path):
+    ledger = Ledger(str(tmp_path))
+    entry = {"kind": "experiment", "source": "", "summary": {}}
+
+    ledger.append(entry, content_key=lambda item: item["evidence_id"])
+
+    assert entry["content_key"] == entry["evidence_id"]
+    assert ledger.entries()[0]["content_key"] == entry["evidence_id"]
+
+
 def test_malformed_lines_are_skipped(tmp_path):
     ledger = Ledger(str(tmp_path))
     ledger.append({"evidence_id": ledger.next_id(), "kind": "text", "summary": {}})

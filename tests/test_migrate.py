@@ -57,6 +57,7 @@ def test_migrate_without_optional_files(tmp_path):
 def test_migrate_existing_target_requires_force(tmp_path):
     source = make_legacy_home(tmp_path)
     target = Ledger(str(tmp_path / "target"))
+    target.home.mkdir(parents=True, exist_ok=True)
     (target.home / "ledger.jsonl").write_text("existing\n", encoding="utf-8")
 
     with pytest.raises(EvidenceLoopError) as error:
@@ -70,6 +71,7 @@ def test_migrate_existing_target_requires_force(tmp_path):
 def test_migrate_force_overwrites_existing_files(tmp_path):
     source = make_legacy_home(tmp_path)
     target = Ledger(str(tmp_path / "target"))
+    target.home.mkdir(parents=True, exist_ok=True)
     (target.home / "ledger.jsonl").write_text("old\n", encoding="utf-8")
     (target.home / "investigation.json").write_text("old\n", encoding="utf-8")
 
